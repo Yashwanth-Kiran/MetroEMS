@@ -1,0 +1,6 @@
+@echo off
+echo Starting React Frontend for MetroEMS...
+cd /d "D:\Downloads\MetroEMS-main\MetroEMS-main"
+echo Current directory: %CD%
+echo Starting npm...
+npm start

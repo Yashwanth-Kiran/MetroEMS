@@ -1,0 +1,8 @@
+# Backend dependencies (pinned for Python 3.13 compatibility)
+fastapi>=0.111
+uvicorn[standard]>=0.30
+pydantic>=1.10,<2.0
+# SNMP stack compatible with Python 3.13
+pysnmp==7.1.21
+pyasn1==0.6.1
+pyasn1-modules==0.4.2
