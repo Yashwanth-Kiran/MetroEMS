@@ -447,10 +447,20 @@ def get_device_logs_enhanced(session_id: int, limit: int = 200, since: _Optional
 # --- Minimal devices endpoints (registry + listing) ---
 from .drivers.base import DriverRegistry
 from .drivers.proxim import ProximDriver
+from .drivers.train_radio import TrainRadioDriver
+from .drivers.transcoder import TranscoderDriver
+from .drivers.encoder import EncoderDriver
+from .drivers.obc import OBCDriver
+from .drivers.iobox import IOBoxDriver
 from .mongo_db import get_db as get_mongo
 
 _REG = DriverRegistry()
 _REG.register(ProximDriver())
+_REG.register(TrainRadioDriver())
+_REG.register(TranscoderDriver())
+_REG.register(EncoderDriver())
+_REG.register(OBCDriver())
+_REG.register(IOBoxDriver())
 
 
 @app.get("/devices")
@@ -796,15 +806,24 @@ def login(request: LoginRequest):
 @app.get("/wizard/device-types")
 def get_device_types():
     """Get supported device types"""
-    return ["station_radio"]
+    return [
+        "station_radio",
+        "train_radio",
+        "transcoder",
+        "encoder",
+        "obc",
+        "io_box",
+    ]
 
 @app.post("/wizard/discover")
 def discover_devices(request: DeviceDiscoveryRequest):
     """
-    STATION RADIO ONLY DISCOVERY - Shows ONLY your Station Radio device
-    NO OTHER DEVICES - NO FAKE DEVICES - ONLY YOUR STATION RADIO
+    Discovery by device_type. Only recognized, real devices are returned.
+    For 'station_radio' we use the stricter Proxim heuristics.
+    For other types we rely on driver.identify() keyword heuristics until vendor OIDs are provided.
     """
-    logger.info("STATION RADIO ONLY Discovery - Looking for Station Radio devices")
+    device_type = (request.device_type or "station_radio").strip()
+    logger.info(f"Discovery - Looking for device_type={device_type}")
     
     try:
         # SNMP-only discovery using sysDescr/sysName; no ping/ARP.
@@ -813,7 +832,7 @@ def discover_devices(request: DeviceDiscoveryRequest):
         import os
         PROXIM_ENTERPRISE_OID = "1.3.6.1.4.1.841"
 
-        logger.info("Starting SNMP-only Station Radio discovery (no ping/ARP)")
+        logger.info("Starting SNMP-only discovery (no ping/ARP)")
         # Apply temporary SNMP overrides if provided
         prev_env = {
             "METRO_SNMP_COMMUNITY": os.environ.get("METRO_SNMP_COMMUNITY"),
@@ -837,7 +856,7 @@ def discover_devices(request: DeviceDiscoveryRequest):
 
             candidates = []
             if target_ips:
-                logger.info(f"Targeted Station Radio discovery for IPs: {target_ips}")
+                logger.info(f"Targeted discovery for IPs: {target_ips}")
                 for ip in target_ips:
                     try:
                         community_eff = os.getenv("METRO_SNMP_COMMUNITY", "public")
@@ -857,36 +876,81 @@ def discover_devices(request: DeviceDiscoveryRequest):
                                        f"Device {ip}"
                             sys_obj = snmp_get(ip, community_eff, "1.3.6.1.2.1.1.2.0") or ""
                             descr_lower = (val.lower() if isinstance(val, str) else "")
-                            heur = any(h in descr_lower for h in ["proxim", "tsunami", "mp-825", "mp825", "cpe-50"])
-                            if (isinstance(sys_obj, str) and sys_obj.startswith(PROXIM_ENTERPRISE_OID)) or heur:
-                                if not any(c.get("ip") == ip for c in candidates):  # suppress duplicates
-                                    candidates.append({
-                                        "ip": ip,
-                                        "hint": "station_radio",
-                                        "description": val if isinstance(val, str) else "Station Radio",
-                                        "device_type": "Station Radio",
-                                        "system_name": sys_name,
-                                        "heuristic": heur and not (isinstance(sys_obj, str) and sys_obj.startswith(PROXIM_ENTERPRISE_OID))
-                                    })
+                            # Choose driver by requested type
+                            drv = None
+                            for d in _REG.all():
+                                if getattr(d, "device_type", None) == device_type:
+                                    drv = d
+                                    break
+                            matched = False
+                            if device_type == "station_radio":
+                                heur = any(h in descr_lower for h in ["proxim", "tsunami", "mp-825", "mp825", "cpe-50"])
+                                matched = (isinstance(sys_obj, str) and sys_obj.startswith(PROXIM_ENTERPRISE_OID)) or heur
+                            else:
+                                if drv:
+                                    res = drv.identify(ip, community_eff)
+                                    matched = bool(res.get("match"))
+                            if matched and not any(c.get("ip") == ip for c in candidates):
+                                label = {
+                                    "station_radio": "Station Radio",
+                                    "train_radio": "Train Radio",
+                                    "transcoder": "Transcoder",
+                                    "encoder": "Encoder",
+                                    "obc": "OBC",
+                                    "io_box": "IO Box Controller",
+                                }.get(device_type, device_type)
+                                candidates.append({
+                                    "ip": ip,
+                                    "hint": device_type,
+                                    "description": val if isinstance(val, str) else label,
+                                    "device_type": label,
+                                    "system_name": sys_name,
+                                })
                     except Exception:
                         # skip this IP on error
                         pass
-                logger.info(f"Targeted discovery found {len(candidates)} candidates")
+                logger.info(f"Targeted discovery found {len(candidates)} candidates for {device_type}")
             else:
-                # Broad scan (limit to at most 15 IP attempts for speed per user request)
+                # Broad scan (limit to at most 15 IP attempts for speed)
                 networks = get_local_networks()
                 scanned = scan_for_snmp_devices(networks, limit_hosts=15)
                 for dev in scanned:
-                    enterprise = dev.get("enterprise", "")
-                    if (isinstance(enterprise, str) and enterprise.startswith(PROXIM_ENTERPRISE_OID)) \
-                       or dev.get("device_type") == "Station Radio" or dev.get("hint") == "station_radio":
-                        candidates.append({
-                            "ip": dev["ip"],
-                            "hint": "station_radio",
-                            "description": dev.get("description", "Station Radio"),
-                            "device_type": "Station Radio",
-                            "system_name": dev.get("system_name", f"Device {dev['ip']}")
-                        })
+                    ip = dev.get("ip")
+                    if not ip:
+                        continue
+                    try:
+                        community_eff = os.getenv("METRO_SNMP_COMMUNITY", "public")
+                        sysdescr = snmp_get(ip, community_eff, "1.3.6.1.2.1.1.1.0")
+                        sysobj = snmp_get(ip, community_eff, "1.3.6.1.2.1.1.2.0") or ""
+                        if not sysdescr:
+                            continue
+                        descr_lower = str(sysdescr).lower()
+                        matched = False
+                        if device_type == "station_radio":
+                            matched = (isinstance(sysobj, str) and sysobj.startswith(PROXIM_ENTERPRISE_OID)) or any(h in descr_lower for h in ["proxim","tsunami","mp-825","mp825","cpe-50"])
+                        else:
+                            for d in _REG.all():
+                                if getattr(d, "device_type", None) == device_type:
+                                    matched = bool(d.identify(ip, community_eff).get("match"))
+                                    break
+                        if matched:
+                            label = {
+                                "station_radio": "Station Radio",
+                                "train_radio": "Train Radio",
+                                "transcoder": "Transcoder",
+                                "encoder": "Encoder",
+                                "obc": "OBC",
+                                "io_box": "IO Box Controller",
+                            }.get(device_type, device_type)
+                            candidates.append({
+                                "ip": ip,
+                                "hint": device_type,
+                                "description": sysdescr if isinstance(sysdescr, str) else label,
+                                "device_type": label,
+                                "system_name": dev.get("system_name", f"Device {ip}")
+                            })
+                    except Exception:
+                        continue
         finally:
             # Restore previous environment
             for k, v in prev_env.items():
@@ -894,34 +958,22 @@ def discover_devices(request: DeviceDiscoveryRequest):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
-        
         if not candidates:
-            logger.warning("NO STATION RADIO DETECTED")
+            logger.warning(f"NO {device_type} DETECTED")
             return {
                 "candidates": [],
-                "message": (
-                    "NO STATION RADIO DETECTED\n\n"
-                    "Your Metro Station Radio (SR-2000) is not connected.\n\n"
-                    "Please check:\n"
-                    "- Station Radio is powered on\n"
-                    "- Ethernet cable is connected to Station Radio\n"
-                    "- Station Radio IP/MAC is correct and reachable\n"
-                    "- Device is on the same network\n\n"
-                    "Only Station Radio devices will be shown."
-                ),
+                "message": f"NO {device_type.replace('_',' ').upper()} DETECTED\n\nOnly recognized real devices are shown.",
                 "real_device_detection": True,
-                "station_radio_only": True,
+                "device_type": device_type,
                 "total_devices_found": 0
             }
-        logger.info("STATION RADIO DISCOVERY COMPLETE (SNMP-only)")
-        logger.info(f"Found {len(candidates)} Station Radio device(s)")
+        logger.info(f"DISCOVERY COMPLETE (type={device_type}, count={len(candidates)})")
         return {
             "candidates": candidates,
-            "message": f"Found {len(candidates)} Station Radio device(s) via SNMP",
+            "message": f"Found {len(candidates)} {device_type.replace('_',' ')} device(s) via SNMP",
             "real_device_detection": True,
-            "station_radio_only": True,
-            "total_devices_found": len(candidates),
-            "device_type_filter": "station_radio_only"
+            "device_type": device_type,
+            "total_devices_found": len(candidates)
         }
         
     except Exception as e:

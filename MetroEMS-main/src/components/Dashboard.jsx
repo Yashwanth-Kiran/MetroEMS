@@ -22,28 +22,14 @@ import {
   Loader
 } from 'lucide-react';
 
-// Static device list for non-Station Radio devices (fallback)
-const staticDeviceLists = {
-  'Train Radios': [
-    { id: 1, name: 'Train Device 1', icon: <MonitorSmartphone size={32} className="text-cyan-300" /> },
-    { id: 2, name: 'Train Device 2', icon: <MonitorSmartphone size={32} className="text-cyan-300" /> },
-  ],
-  'Transcoder': [
-    { id: 1, name: 'Transcoder Device 1', icon: <Tv size={32} className="text-cyan-300" /> },
-    { id: 2, name: 'Transcoder Device 2', icon: <Tv size={32} className="text-cyan-300" /> },
-  ],
-  'Encoder': [
-    { id: 1, name: 'Encoder Device 1', icon: <Camera size={32} className="text-cyan-300" /> },
-    { id: 2, name: 'Encoder Device 2', icon: <Camera size={32} className="text-cyan-300" /> },
-  ],
-  'OBC': [
-    { id: 1, name: 'OBC Device 1', icon: <CpuChip size={32} className="text-cyan-300" /> },
-    { id: 2, name: 'OBC Device 2', icon: <CpuChip size={32} className="text-cyan-300" /> },
-  ],
-  'IO Box Controller': [
-    { id: 1, name: 'IO Box Device 1', icon: <Box size={32} className="text-cyan-300" /> },
-    { id: 2, name: 'IO Box Device 2', icon: <Box size={32} className="text-cyan-300" /> },
-  ],
+// Map UI category to backend device_type and default icon
+const categoryMap = {
+  'Station Radios': { type: 'station_radio', icon: (size=32)=> <Wifi size={size} className="text-cyan-300" /> },
+  'Train Radios':   { type: 'train_radio',   icon: (size=32)=> <MonitorSmartphone size={size} className="text-cyan-300" /> },
+  'Transcoder':     { type: 'transcoder',     icon: (size=32)=> <Tv size={size} className="text-cyan-300" /> },
+  'Encoder':        { type: 'encoder',        icon: (size=32)=> <Camera size={size} className="text-cyan-300" /> },
+  'OBC':            { type: 'obc',            icon: (size=32)=> <CpuChip size={size} className="text-cyan-300" /> },
+  'IO Box Controller': { type: 'io_box',      icon: (size=32)=> <Box size={size} className="text-cyan-300" /> },
 };
 
 const elements = [
@@ -136,7 +122,7 @@ function Dashboard() {
     }
   };
 
-  const discoverStationRadios = async () => {
+  const discoverByCategory = async (category) => {
     setIsDiscovering(true);
     setDiscoveryError('');
     
@@ -152,7 +138,8 @@ function Dashboard() {
       if (signalOid) localStorage.setItem('metro_last_signal_oid', signalOid);
       if (snrOid) localStorage.setItem('metro_last_snr_oid', snrOid);
       if (logBaseOid) localStorage.setItem('metro_last_log_base_oid', logBaseOid);
-      const response = await apiService.discoverDevices('station_radio', {
+      const deviceType = categoryMap[category]?.type || 'station_radio';
+      const response = await apiService.discoverDevices(deviceType, {
         ip: targetIp || undefined,
         community: community || undefined
       });
@@ -161,15 +148,15 @@ function Dashboard() {
       // Convert discovered devices to the expected format
       const formattedDevices = devices.map((device, index) => ({
         id: `discovered_${index}`,
-        name: device.description || `Station Radio at ${device.ip}`,
+        name: device.description || `${category} at ${device.ip}`,
         ip: device.ip,
-        icon: <Wifi size={32} className="text-cyan-300" />,
+        icon: categoryMap[category]?.icon(32) || <Wifi size={32} className="text-cyan-300" />,
         isReal: true,
         status: 'discovered'
       }));
 
       if (formattedDevices.length === 0) {
-        setDiscoveryError('No Station Radio devices found on the network.');
+        setDiscoveryError(`No ${category} devices found on the network.`);
       }
 
       setDiscoveredDevices(formattedDevices);
@@ -185,19 +172,18 @@ function Dashboard() {
   const handleCardClick = (name) => {
     setSelectedCategory(name);
     
-    // If it's Station Radios, start device discovery
-    if (name === 'Station Radios') {
-      discoverStationRadios();
-    }
+    // For any category, start device discovery
+    discoverByCategory(name);
   };
 
   const handleDeviceClick = async (device, category) => {
-    if (category === 'Station Radios' && device.ip) {
+    if (device.ip) {
       try {
         // Start a session for the device
+        const deviceType = categoryMap[category]?.type || 'station_radio';
         const sessionResponse = await apiService.startSession(
           device.ip,
-          'station_radio',
+          deviceType,
           username,
           {
             community,
@@ -231,9 +217,6 @@ function Dashboard() {
         // Do NOT navigate to a fake route; surface an error and keep the user here
         setDiscoveryError(`Failed to start session for ${device.ip}: ${error.message}`);
       }
-    } else {
-      // For non-Station Radio devices, use old routing
-      navigate(`/device/${encodeURIComponent(category)}/${device.id}`);
     }
   };
 
@@ -244,10 +227,7 @@ function Dashboard() {
   };
 
   const getDeviceList = (category) => {
-    if (category === 'Station Radios') {
-      return discoveredDevices;
-    }
-    return staticDeviceLists[category] || [];
+    return discoveredDevices;
   };
 
   return (
@@ -278,7 +258,7 @@ function Dashboard() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-white">{selectedCategory}</h2>
                 
-                {selectedCategory === 'Station Radios' && (
+                {selectedCategory && (
                   <div className="flex items-center gap-4 flex-wrap">
                     {/* Backend Connection Status */}
                     <div className="flex items-center gap-2">
@@ -408,13 +388,13 @@ function Dashboard() {
                       <div className="mb-3">{device.icon}</div>
                       <div className="text-white text-lg font-semibold text-center">{device.name}</div>
                       
-                      {/* IP Address for Station Radios */}
-                      {selectedCategory === 'Station Radios' && device.ip && (
+                      {/* IP Address */}
+                      {device.ip && (
                         <div className="text-blue-100 text-sm mt-1">{device.ip}</div>
                       )}
                       
                       <div className="text-blue-100 text-sm mt-1">
-                        {selectedCategory === 'Station Radios' ? 'Connect' : 'Manage Device'}
+                        Connect
                       </div>
                     </button>
                   ))}

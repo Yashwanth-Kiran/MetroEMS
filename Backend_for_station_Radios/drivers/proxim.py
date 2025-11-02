@@ -6,6 +6,7 @@ from .base import DeviceDriver
 
 class ProximDriver(DeviceDriver):
     vendor = "proxim"
+    device_type = "station_radio"
     enterprise_oid_prefix = "1.3.6.1.4.1.841"
 
     def identify(self, ip: str, c: str = "public") -> Dict[str, Any]:
