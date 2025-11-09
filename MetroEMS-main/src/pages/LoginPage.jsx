@@ -39,21 +39,34 @@ const LoginPage = () => {
       const isBackendAvailable = await apiService.isBackendAvailable();
       
       if (isBackendAvailable) {
-        // Authenticate with backend using internal mapping; user only enters activation code
+        // Prefer fingerprint flow for activation: register then login
         const defaultUsername = licenseKeyToUsername[licenseKey] || 'MetroAdmin';
-        const defaultPassword = 'admin123';
         try {
-          const response = await apiService.login(defaultUsername, defaultPassword);
+          await apiService.registerFingerprint();
+          const response = await apiService.loginWithFingerprint();
           navigate('/dashboard', {
             state: {
-              username: response.username,
-              role: response.role,
-              org: response.org,
+              username: defaultUsername,
+              role: response.role || 'operator',
+              org: response.org || 'metro',
               fromBackend: true
             }
           });
-        } catch (authError) {
-          setError('Invalid activation code or backend authentication failed');
+        } catch (e1) {
+          // Fallback to legacy login if backend is the older app variant
+          try {
+            const legacy = await apiService.login('MetroAdmin', 'admin123');
+            navigate('/dashboard', {
+              state: {
+                username: defaultUsername,
+                role: legacy.role || 'operator',
+                org: legacy.org || 'metro',
+                fromBackend: true
+              }
+            });
+          } catch (e2) {
+            setError('Activation failed. Please try again or use the demo code below.');
+          }
         }
       } else {
         // Fallback to demo mode

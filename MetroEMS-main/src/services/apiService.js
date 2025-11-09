@@ -2,8 +2,9 @@
 // Handles all communication with the FastAPI backend
 
 // Allow overriding the backend URL via environment variable
-// e.g., set REACT_APP_API_BASE=http://localhost:8002 for the updated backend
-const API_BASE_URL = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+// Default to port 8002 where the Real Backend runs in this workspace
+// You can set REACT_APP_API_BASE to override (e.g., http://localhost:8002)
+const API_BASE_URL = process.env.REACT_APP_API_BASE || 'http://localhost:8002';
 
 class ApiService {
     constructor() {
@@ -27,17 +28,21 @@ class ApiService {
         };
     }
 
-    // Generic API request handler
+    // Generic API request handler with timeout (defaults to 5s)
     async request(endpoint, options = {}) {
         const url = `${API_BASE_URL}${endpoint}`;
+        const { timeoutMs = 5000, ...rest } = options;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
+
         const config = {
             headers: this.getAuthHeaders(),
-            ...options
+            signal: controller.signal,
+            ...rest
         };
 
         try {
             const response = await fetch(url, config);
-            
             if (!response.ok) {
                 if (response.status === 401) {
                     // Token expired or invalid
@@ -51,11 +56,12 @@ class ApiService {
             if (contentType && contentType.includes('application/json')) {
                 return await response.json();
             }
-            
             return await response.text();
         } catch (error) {
             console.error(`API request failed for ${endpoint}:`, error);
             throw error;
+        } finally {
+            clearTimeout(timer);
         }
     }
 
@@ -67,16 +73,75 @@ class ApiService {
 
     // Authentication methods
     async login(username, password) {
+        // Try fingerprint login first
+        const fpPayload = this._collectFingerprint();
+        try {
+            const response = await this.request('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify(fpPayload)
+            });
+            if (response.token) this.setToken(response.token);
+            return response;
+        } catch (e) {
+            // Fallback to legacy username/password login
+            const legacy = await this.request('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({ username, password })
+            });
+            if (legacy.token) this.setToken(legacy.token);
+            return legacy;
+        }
+    }
+
+    // Preferred login using browser fingerprint
+    async loginWithFingerprint() {
+        const fpPayload = this._collectFingerprint();
         const response = await this.request('/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ username, password })
+            body: JSON.stringify(fpPayload)
         });
-        
         if (response.token) {
             this.setToken(response.token);
         }
-        
         return response;
+    }
+
+    // Register fingerprint (best-effort; backend will persist if new)
+    async registerFingerprint() {
+        const fpPayload = this._collectFingerprint();
+        return await this.request('/auth/register', {
+            method: 'POST',
+            body: JSON.stringify(fpPayload)
+        });
+    }
+
+    // Collect minimal fingerprint payload for backend auth
+    _collectFingerprint() {
+        try {
+            const nav = typeof navigator !== 'undefined' ? navigator : {};
+            const scr = (typeof window !== 'undefined' && window.screen) ? window.screen : null;
+            const tz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : null;
+            return {
+                userAgent: nav.userAgent || null,
+                platform: nav.platform || null,
+                timezone: tz || null,
+                screen: scr ? `${scr.width || ''}x${scr.height || ''}` : null,
+                language: nav.language || null,
+                webgl: null,
+                installTime: localStorage.getItem('metroems_install_time') || (() => {
+                    const t = new Date().toISOString();
+                    try { localStorage.setItem('metroems_install_time', t); } catch {}
+                    return t;
+                })(),
+                deviceId: localStorage.getItem('metroems_device_id') || (() => {
+                    const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                    try { localStorage.setItem('metroems_device_id', id); } catch {}
+                    return id;
+                })(),
+            };
+        } catch (e) {
+            return {};
+        }
     }
 
     async getLicenseStatus() {
@@ -100,6 +165,49 @@ class ApiService {
             method: 'POST',
             body: JSON.stringify(payload)
         });
+    }
+
+    // New discovery endpoint: POST /discover with optional targetIp
+    async discoverNewDevices(targetIp) {
+        const body = targetIp ? { targetIp } : {};
+        let primary = [];
+        try {
+            const res = await this.request('/discover', {
+                method: 'POST',
+                body: JSON.stringify(body)
+            });
+            primary = Array.isArray(res) ? res : (res?.results || []);
+        } catch (_) {
+            primary = [];
+        }
+
+        if (primary && primary.length > 0) return primary;
+
+        // If empty or failed, fallback to legacy wizard discovery
+        try {
+            const payload = { device_type: 'station_radio' };
+            if (targetIp) payload.ip = targetIp;
+            const legacy = await this.request('/wizard/discover', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            const candidates = Array.isArray(legacy?.candidates) ? legacy.candidates : [];
+            if (candidates.length > 0) return candidates;
+            // If still empty and no target, try a common alternate community ('private')
+            if (!targetIp) {
+                try {
+                    const alt = await this.request('/wizard/discover', {
+                        method: 'POST',
+                        body: JSON.stringify({ device_type: 'station_radio', community: 'private' })
+                    });
+                    const altCandidates = Array.isArray(alt?.candidates) ? alt.candidates : [];
+                    if (altCandidates.length > 0) return altCandidates;
+                } catch (_) {}
+            }
+            return primary;
+        } catch (_) {
+            return primary; // empty
+        }
     }
 
     async identifyDevice(ip) {
@@ -167,7 +275,8 @@ class ApiService {
     // Health check
     async healthCheck() {
         try {
-            return await this.request('/health');
+            // Quick 2s health probe to avoid UI hangs
+            return await this.request('/health', { timeoutMs: 2000 });
         } catch (error) {
             return { status: 'error', message: error.message };
         }
@@ -238,6 +347,42 @@ class ApiService {
             console.warn('Failed to get device logs:', error);
             return [];
         }
+    }
+
+    // Live logs stream via SSE
+    createLogsEventSource({ deviceIp, since }) {
+        const params = new URLSearchParams();
+        if (deviceIp) params.set('deviceIp', deviceIp);
+        if (since) params.set('since', since);
+        const url = `${API_BASE_URL}/logs/stream?${params.toString()}`;
+        return new EventSource(url, { withCredentials: false });
+    }
+
+    // Recent logs (polling fallback)
+    async getRecentLogs({ deviceIp, limit = 200, since } = {}) {
+        const params = new URLSearchParams();
+        if (deviceIp) params.set('deviceIp', deviceIp);
+        if (limit) params.set('limit', String(limit));
+        if (since) params.set('since', since);
+        return await this.request(`/logs/recent?${params.toString()}`);
+    }
+
+    // Time-series metrics fetch
+    async getMetricsTimeseries({ deviceIp, limit = 300, since } = {}) {
+        const params = new URLSearchParams();
+        if (deviceIp) params.set('deviceIp', deviceIp);
+        if (limit) params.set('limit', String(limit));
+        if (since) params.set('since', since);
+        return await this.request(`/metrics/timeseries?${params.toString()}`);
+    }
+
+    // Single-metric series over last N minutes
+    async getMetricSeries({ deviceIp, metric, mins = 15 } = {}) {
+        const params = new URLSearchParams();
+        if (deviceIp) params.set('deviceIp', deviceIp);
+        if (metric) params.set('metric', metric);
+        if (mins) params.set('mins', String(mins));
+        return await this.request(`/metrics/timeseries?${params.toString()}`);
     }
 }
 
