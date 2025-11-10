@@ -238,6 +238,33 @@ class ApiService {
         return await this.request(`/session/${sessionId}/summary`);
     }
 
+    // Normalized device summary from a session with null placeholders
+    async getUnifiedDeviceSummary(sessionId, deviceType = 'station_radio') {
+        try {
+            const raw = await this.getSessionSummary(sessionId);
+            const out = { ...raw };
+            if (raw && raw.identity) {
+                out.vendor = raw.identity.vendor || null;
+                out.model = raw.identity.model || null;
+            }
+            out.ip = raw?.ip ?? null;
+            out.type = raw?.device_type ?? deviceType;
+            const ensure = (k) => { if (out[k] === undefined) out[k] = null; };
+            ['sysName','sysDescr','firmware','uptimeSeconds','lastSeen','radio_mode','channel','bandwidthMHz','txPowerDbm','rssiDbm','snrDb','txRateMbps','rxRateMbps'].forEach(ensure);
+            return out;
+        } catch (e) {
+            return {
+                ip: null,
+                type: deviceType,
+                vendor: null,
+                model: null,
+                firmware: null,
+                uptimeSeconds: null,
+                lastSeen: null,
+            };
+        }
+    }
+
     // Device operations
     async getDeviceConfig(sessionId) {
         return await this.request(`/ops/${sessionId}/config`);
