@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import LoginPage from './pages/LoginPage';
 import Dashboard from './components/Dashboard';
 import DeviceManagement from './components/DeviceManagement';
+import TranscoderDetail from './components/TranscoderDetail';
 
 // Authentication check: backend token or demo mode flag
 const isAuthenticated = () => {
@@ -23,6 +24,9 @@ function App() {
         <Route
           path="/device/:type/:id"
           element={isAuthenticated() ? <DeviceManagement /> : <Navigate to="/" replace />} />
+        <Route
+          path="/transcoder/:id"
+          element={isAuthenticated() ? <TranscoderDetail /> : <Navigate to="/" replace />} />
       </Routes>
     </Router>
   );

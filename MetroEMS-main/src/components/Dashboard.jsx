@@ -203,15 +203,26 @@ function Dashboard() {
           status: device.status || 'discovered'
         };
 
-        // Navigate to device management, keep original discovered id in path,
-        // but include the real session id in the query string for reliability.
-        navigate(`/device/${encodeURIComponent(category)}/${device.id}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
-          state: {
-            deviceInfo: devicePlain,
-            sessionId: sessionResponse.session_id,
-            fromBackend: isBackendConnected
-          }
-        });
+        // Navigate to specific device page based on type
+        // Transcoder has its own dedicated UI
+        if (category === 'Transcoder') {
+          navigate(`/transcoder/${device.id}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
+            state: {
+              deviceInfo: devicePlain,
+              sessionId: sessionResponse.session_id,
+              fromBackend: isBackendConnected
+            }
+          });
+        } else {
+          // Navigate to generic device management for other device types
+          navigate(`/device/${encodeURIComponent(category)}/${device.id}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
+            state: {
+              deviceInfo: devicePlain,
+              sessionId: sessionResponse.session_id,
+              fromBackend: isBackendConnected
+            }
+          });
+        }
       } catch (error) {
         console.error('Failed to start session:', error);
         // Do NOT navigate to a fake route; surface an error and keep the user here
@@ -326,7 +337,7 @@ function Dashboard() {
                     <button
                       onClick={() => {
                         if (isDiscovering) return; // debounce guard
-                        discoverStationRadios();
+                        discoverByCategory(selectedCategory);
                       }}
                       disabled={isDiscovering}
                       className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center gap-2 transition disabled:opacity-50"
