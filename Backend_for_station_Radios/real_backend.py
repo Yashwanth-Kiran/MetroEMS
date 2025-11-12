@@ -101,10 +101,11 @@ def health():
 
 # Include new feature routers (OBC, Transcoder, Events)
 try:
-    from .routers import obc as _obc_router, transcoder as _tx_router, events as _events_router
+    from .routers import obc as _obc_router, transcoder as _tx_router, events as _events_router, encoder as _enc_router
     app.include_router(_obc_router.router)
     app.include_router(_tx_router.router)
     app.include_router(_events_router.router)
+    app.include_router(_enc_router.router)
 except Exception:
     # Don't break legacy flows if optional routers fail to import
     pass
@@ -1789,6 +1790,40 @@ def discover_devices(request: DeviceDiscoveryRequest):
                         "system_name": "Demo-Transcoder-02"
                     }
                 ]
+            elif device_type == "encoder":
+                demo_devices = [
+                    {
+                        "ip": "192.168.77.14",
+                        "hint": "encoder",
+                        "description": "KeyWest E801 Encoder v2.8.4 (Demo)",
+                        "device_type": "Encoder",
+                        "system_name": "Demo-Encoder-01"
+                    },
+                    {
+                        "ip": "192.168.77.15",
+                        "hint": "encoder",
+                        "description": "KeyWest E801 Encoder v2.8.4 (Demo)",
+                        "device_type": "Encoder",
+                        "system_name": "Demo-Encoder-02"
+                    }
+                ]
+            elif device_type == "obc":
+                demo_devices = [
+                    {
+                        "ip": "10.205.2.91",
+                        "hint": "obc",
+                        "description": "OBC Cab-5921 v1.0.0 (Demo)",
+                        "device_type": "OBC",
+                        "system_name": "Demo-OBC-01"
+                    },
+                    {
+                        "ip": "10.205.2.92",
+                        "hint": "obc",
+                        "description": "OBC Cab-5922 v1.0.0 (Demo)",
+                        "device_type": "OBC",
+                        "system_name": "Demo-OBC-02"
+                    }
+                ]
             elif device_type == "station_radio":
                 demo_devices = [
                     {
@@ -1846,8 +1881,8 @@ def start_session(request: SessionStartRequest):
     global NEXT_SESSION_ID
     logger.info(f"Starting session for device at {request.ip} (SNMP-only verify)")
     
-    # Check if this is a demo device (192.168.66.x range for demo transcoders)
-    is_demo_device = request.ip.startswith("192.168.66.")
+    # Check if this is a demo device (192.168.66.x for transcoders, 192.168.77.x for encoders, 10.205.2.x for OBC)
+    is_demo_device = request.ip.startswith("192.168.66.") or request.ip.startswith("192.168.77.") or request.ip.startswith("10.205.2.")
     
     if is_demo_device:
         logger.info(f"Demo device detected: {request.ip}, skipping SNMP verification")

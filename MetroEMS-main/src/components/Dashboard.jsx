@@ -204,9 +204,25 @@ function Dashboard() {
         };
 
         // Navigate to specific device page based on type
-        // Transcoder has its own dedicated UI
+        // Transcoder, Encoder, and OBC have their own dedicated UIs
         if (category === 'Transcoder') {
-          navigate(`/transcoder/${device.id}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
+          navigate(`/transcoder/${device.ip}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
+            state: {
+              deviceInfo: devicePlain,
+              sessionId: sessionResponse.session_id,
+              fromBackend: isBackendConnected
+            }
+          });
+        } else if (category === 'Encoder') {
+          navigate(`/encoder/${device.ip}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
+            state: {
+              deviceInfo: devicePlain,
+              sessionId: sessionResponse.session_id,
+              fromBackend: isBackendConnected
+            }
+          });
+        } else if (category === 'OBC') {
+          navigate(`/obc/${device.ip}?session=${encodeURIComponent(sessionResponse.session_id)}`, {
             state: {
               deviceInfo: devicePlain,
               sessionId: sessionResponse.session_id,

@@ -4,6 +4,8 @@ import LoginPage from './pages/LoginPage';
 import Dashboard from './components/Dashboard';
 import DeviceManagement from './components/DeviceManagement';
 import TranscoderDetail from './components/TranscoderDetail';
+import EncoderDetail from './components/EncoderDetail';
+import OBCDetail from './components/OBCDetail';
 
 // Authentication check: backend token or demo mode flag
 const isAuthenticated = () => {
@@ -27,6 +29,12 @@ function App() {
         <Route
           path="/transcoder/:id"
           element={isAuthenticated() ? <TranscoderDetail /> : <Navigate to="/" replace />} />
+        <Route
+          path="/encoder/:id"
+          element={isAuthenticated() ? <EncoderDetail /> : <Navigate to="/" replace />} />
+        <Route
+          path="/obc/:id"
+          element={isAuthenticated() ? <OBCDetail /> : <Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
