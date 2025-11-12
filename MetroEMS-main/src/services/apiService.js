@@ -144,6 +144,55 @@ class ApiService {
         }
     }
 
+    // Email/Password Authentication
+    async loginWithEmailPassword(email, password) {
+        const response = await this.request('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+        });
+        if (response.token) this.setToken(response.token);
+        return response;
+    }
+
+    async registerUser(email, password, name = null) {
+        const response = await this.request('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ email, password, name })
+        });
+        return response;
+    }
+
+    async getUserProfile() {
+        return await this.request('/api/user/profile', {
+            method: 'GET'
+        });
+    }
+
+    async changePassword(currentPassword, newPassword) {
+        return await this.request('/api/user/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ 
+                current_password: currentPassword, 
+                new_password: newPassword 
+            })
+        });
+    }
+
+    async getUserActivities(limit = 50) {
+        return await this.request(`/api/user/activities?limit=${limit}`, {
+            method: 'GET'
+        });
+    }
+
+    async getSystemLogs(limit = 100, level = null, category = null) {
+        let query = `limit=${limit}`;
+        if (level) query += `&level=${level}`;
+        if (category) query += `&category=${category}`;
+        return await this.request(`/api/system/logs?${query}`, {
+            method: 'GET'
+        });
+    }
+
     async getLicenseStatus() {
         return await this.request('/license/status');
     }

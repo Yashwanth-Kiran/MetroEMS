@@ -14,6 +14,7 @@ import {
   MonitorSmartphone,
   Tv,
   Camera,
+  User,
   Cpu as CpuChip,
   Box,
   RefreshCw,
@@ -260,11 +261,18 @@ function Dashboard() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700">
       <div className="w-full max-w-5xl mx-auto flex">
-        {/* Left side welcome message */}
-        <div className="flex flex-col items-start justify-start mr-8 min-w-[200px]">
+        {/* Left side welcome message and customer dashboard link */}
+        <div className="flex flex-col items-start justify-start mr-8 min-w-[200px] space-y-4">
           <div className="bg-white/10 backdrop-blur-md rounded-xl shadow-lg px-6 py-4 mt-8">
             <span className="text-lg text-white font-semibold">{username ? `Welcome, ${username}` : "Welcome"}</span>
           </div>
+          <button
+            onClick={() => navigate('/customer-dashboard')}
+            className="bg-blue-600/80 backdrop-blur-md hover:bg-blue-700 rounded-xl shadow-lg px-6 py-4 transition flex items-center gap-2 text-white font-semibold"
+          >
+            <User size={20} />
+            My Account
+          </button>
         </div>
         <div className="flex-1">
           <div className="mb-8 text-center">

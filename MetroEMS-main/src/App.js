@@ -6,6 +6,7 @@ import DeviceManagement from './components/DeviceManagement';
 import TranscoderDetail from './components/TranscoderDetail';
 import EncoderDetail from './components/EncoderDetail';
 import OBCDetail from './components/OBCDetail';
+import CustomerDashboard from './pages/CustomerDashboard';
 
 // Authentication check: backend token or demo mode flag
 const isAuthenticated = () => {
@@ -23,6 +24,9 @@ function App() {
         <Route
           path="/dashboard"
           element={isAuthenticated() ? <Dashboard /> : <Navigate to="/" replace />} />
+        <Route
+          path="/customer-dashboard"
+          element={isAuthenticated() ? <CustomerDashboard /> : <Navigate to="/" replace />} />
         <Route
           path="/device/:type/:id"
           element={isAuthenticated() ? <DeviceManagement /> : <Navigate to="/" replace />} />

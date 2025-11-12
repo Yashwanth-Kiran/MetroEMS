@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Shield, Key, CheckCircle, AlertCircle } from 'lucide-react';
+import { Shield, Mail, Lock, CheckCircle, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiService from '../services/apiService';
 
 const LoginPage = () => {
-  const [licenseKey, setLicenseKey] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
   
-  const demoKey = "METRO-2025-EMS1-ACT1";
+  const demoEmail = "admin@metro.com";
+  const demoPassword = "admin123";
   const [copied, setCopied] = useState(false);
 
   // Check backend connectivity on component mount
@@ -24,12 +26,7 @@ const LoginPage = () => {
     }
   };
 
-  // Simulated license key to username mapping (fallback for demo mode)
-  const licenseKeyToUsername = {
-    "METRO-2025-EMS1-ACT1": "MetroAdmin",
-  };
-
-  const handleLicenseSubmit = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
@@ -39,49 +36,40 @@ const LoginPage = () => {
       const isBackendAvailable = await apiService.isBackendAvailable();
       
       if (isBackendAvailable) {
-        // Prefer fingerprint flow for activation: register then login
-        const defaultUsername = licenseKeyToUsername[licenseKey] || 'MetroAdmin';
         try {
-          await apiService.registerFingerprint();
-          const response = await apiService.loginWithFingerprint();
+          // Login with email and password
+          const response = await apiService.loginWithEmailPassword(email, password);
+          
+          // Store token
+          sessionStorage.setItem('auth_token', response.token);
+          sessionStorage.setItem('user_email', response.user.email);
+          sessionStorage.setItem('user_name', response.user.name);
+          sessionStorage.setItem('user_role', response.user.role);
+          
           navigate('/dashboard', {
             state: {
-              username: defaultUsername,
-              role: response.role || 'operator',
-              org: response.org || 'metro',
+              username: response.user.name,
+              email: response.user.email,
+              role: response.user.role,
               fromBackend: true
             }
           });
         } catch (e1) {
-          // Fallback to legacy login if backend is the older app variant
-          try {
-            const legacy = await apiService.login('MetroAdmin', 'admin123');
-            navigate('/dashboard', {
-              state: {
-                username: defaultUsername,
-                role: legacy.role || 'operator',
-                org: legacy.org || 'metro',
-                fromBackend: true
-              }
-            });
-          } catch (e2) {
-            setError('Activation failed. Please try again or use the demo code below.');
-          }
+          setError(e1.response?.data?.detail || 'Invalid email or password. Use demo credentials below.');
         }
       } else {
         // Fallback to demo mode
-        const username = licenseKeyToUsername[licenseKey];
-        if (username) {
-          // mark demo mode authenticated
+        if (email === demoEmail && password === demoPassword) {
           sessionStorage.setItem('demo_auth', 'true');
           navigate('/dashboard', { 
             state: { 
-              username,
+              username: 'Metro Admin',
+              email: demoEmail,
               fromBackend: false
             } 
           });
         } else {
-          setError('Invalid license key!');
+          setError('Invalid credentials! Use demo email and password below.');
         }
       }
     } catch (error) {
@@ -91,8 +79,14 @@ const LoginPage = () => {
     }
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(demoKey);
+  const handleCopyEmail = () => {
+    navigator.clipboard.writeText(demoEmail);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(demoPassword);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
@@ -115,51 +109,88 @@ const LoginPage = () => {
           </div>
         )}
 
-        {/* Activation Code Form (License key only) */}
-          <form className="w-full space-y-5" onSubmit={handleLicenseSubmit}>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400">
-                <Key size={18} />
-              </span>
-              <input
-                type="text"
-                value={licenseKey}
-                onChange={e => setLicenseKey(e.target.value)}
-                placeholder="Enter your activation code"
-                className="w-full pl-10 pr-3 py-3 rounded-md border-none bg-blue-900/60 text-blue-100 placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 font-semibold tracking-wider"
-                disabled={isLoading}
-              />
+        {/* Email/Password Login Form */}
+        <form className="w-full space-y-5" onSubmit={handleLogin}>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400">
+              <Mail size={18} />
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Email address"
+              className="w-full pl-10 pr-3 py-3 rounded-md border-none bg-blue-900/60 text-blue-100 placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              disabled={isLoading}
+              required
+            />
+          </div>
+          
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400">
+              <Lock size={18} />
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full pl-10 pr-3 py-3 rounded-md border-none bg-blue-900/60 text-blue-100 placeholder-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              disabled={isLoading}
+              required
+            />
+          </div>
+          
+          <button
+            type="submit"
+            disabled={isLoading || !email.trim() || !password.trim()}
+            className="w-full flex items-center justify-center gap-2 bg-blue-700 text-white py-3 rounded-md font-semibold hover:bg-blue-800 transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isLoading ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            ) : (
+              <CheckCircle size={20} className="inline" />
+            )}
+            {isLoading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+
+        {/* Demo Credentials Info */}
+        <div className="mt-8 w-full">
+          <div className="bg-blue-800/80 border border-blue-600 rounded-md py-3 px-4 text-blue-100 text-sm">
+            <div className="font-semibold text-center mb-2">Demo Credentials:</div>
+            
+            <div className="space-y-2">
+              <div>
+                <div className="text-xs text-blue-300 mb-1">Email:</div>
+                <button
+                  className="w-full font-mono text-blue-200 bg-blue-700/60 px-3 py-1.5 rounded hover:bg-blue-700 transition cursor-pointer text-left"
+                  onClick={handleCopyEmail}
+                  type="button"
+                  title="Click to copy"
+                >
+                  {demoEmail}
+                </button>
+              </div>
+              
+              <div>
+                <div className="text-xs text-blue-300 mb-1">Password:</div>
+                <button
+                  className="w-full font-mono text-blue-200 bg-blue-700/60 px-3 py-1.5 rounded hover:bg-blue-700 transition cursor-pointer text-left"
+                  onClick={handleCopyPassword}
+                  type="button"
+                  title="Click to copy"
+                >
+                  {demoPassword}
+                </button>
+              </div>
             </div>
-            <button
-              type="submit"
-              disabled={isLoading || !licenseKey.trim()}
-              className="w-full flex items-center justify-center gap-2 bg-blue-700 text-white py-3 rounded-md font-semibold hover:bg-blue-800 transition shadow disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <CheckCircle size={20} className="inline" />
-              )}
-              {isLoading ? 'Activating...' : 'Activate'}
-            </button>
-          </form>
-
-
-        {/* Demo Activation Code Info */}
-          <div className="mt-8 w-full">
-            <div className="bg-blue-800/80 border border-blue-600 rounded-md py-2 px-4 text-blue-100 font-semibold text-sm flex flex-col items-center">
-              <span>Demo Activation Code:</span>
-              <button
-                className="font-bold tracking-wider text-blue-200 bg-blue-700/60 px-3 py-1 rounded mt-1 hover:bg-blue-700 transition cursor-pointer select-all"
-                onClick={handleCopy}
-                type="button"
-                title="Click to copy"
-              >
-                {demoKey}
-              </button>
-              <span className="text-xs text-blue-300 mt-1">{copied ? "Copied!" : "Click to copy"}</span>
+            
+            <div className="text-xs text-blue-300 mt-2 text-center">
+              {copied ? "✓ Copied!" : "Click to copy"}
             </div>
           </div>
+        </div>
 
       </div>
     </div>

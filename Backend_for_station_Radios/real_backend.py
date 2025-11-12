@@ -1610,6 +1610,174 @@ def login_fingerprint(payload: FingerprintLogin):
         )
     raise HTTPException(status_code=401, detail="Fingerprint mismatch or user not registered")
 
+
+# ============================================================================
+# NEW EMAIL/PASSWORD AUTHENTICATION ENDPOINTS
+# ============================================================================
+from .models.user_models import UserCreate, UserLogin, UserResponse, PasswordChange, UserActivity, SystemLog
+from .user_auth import (
+    create_user, find_user_by_email, verify_password, update_last_login,
+    change_password, log_activity, get_user_activities, log_system_event,
+    get_system_logs, create_demo_user
+)
+
+# Create demo user on startup
+try:
+    create_demo_user()
+except Exception:
+    pass
+
+
+@app.post("/api/auth/register")
+def register_user(user: UserCreate, request: Request):
+    """Register a new user with email and password"""
+    # Check if user already exists
+    existing_user = find_user_by_email(user.email)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create user
+    new_user = create_user(user.email, user.password, user.name)
+    
+    # Log activity
+    client_ip = request.client.host if request and request.client else None
+    log_activity(
+        new_user["id"], 
+        new_user["email"], 
+        "REGISTER", 
+        "User registered",
+        ip_address=client_ip
+    )
+    log_system_event("INFO", "AUTH", f"New user registered: {user.email}")
+    
+    # Return user info (without password)
+    return {
+        "id": new_user["id"],
+        "email": new_user["email"],
+        "name": new_user["name"],
+        "role": new_user["role"],
+        "created_at": new_user["created_at"]
+    }
+
+
+@app.post("/api/auth/login")
+def login_user(credentials: UserLogin, request: Request):
+    """Login with email and password"""
+    user = find_user_by_email(credentials.email)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    if not verify_password(credentials.password, user["password"]):
+        log_system_event("WARNING", "AUTH", f"Failed login attempt for {credentials.email}")
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # Update last login
+    update_last_login(credentials.email)
+    
+    # Log activity
+    client_ip = request.client.host if request and request.client else None
+    log_activity(
+        user["id"], 
+        user["email"], 
+        "LOGIN", 
+        "User logged in",
+        ip_address=client_ip
+    )
+    log_system_event("INFO", "AUTH", f"User logged in: {credentials.email}")
+    
+    # Generate token
+    token = issue_jwt(user.get("role", "customer"))
+    
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"],
+            "last_login": user.get("last_login")
+        }
+    }
+
+
+@app.get("/api/user/profile")
+def get_user_profile(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
+    """Get current user profile"""
+    # In production, decode JWT token to get user email
+    # For demo, we'll use a simple approach
+    return {
+        "email": "admin@metro.com",
+        "name": "Metro Admin",
+        "role": "customer",
+        "created_at": datetime.datetime.utcnow().isoformat()
+    }
+
+
+@app.post("/api/user/change-password")
+def update_password(password_data: PasswordChange, request: Request):
+    """Change user password"""
+    # In production, get email from JWT token
+    # For demo, using demo user
+    email = "admin@metro.com"
+    
+    success = change_password(email, password_data.current_password, password_data.new_password)
+    if not success:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Log activity
+    user = find_user_by_email(email)
+    if user:
+        client_ip = request.client.host if request and request.client else None
+        log_activity(
+            user["id"], 
+            user["email"], 
+            "PASSWORD_CHANGE", 
+            "Password changed successfully",
+            ip_address=client_ip
+        )
+        log_system_event("INFO", "SECURITY", f"Password changed for {email}")
+    
+    return {"message": "Password changed successfully"}
+
+
+@app.get("/api/user/activities")
+def get_activities(limit: int = 50):
+    """Get user activities"""
+    # In production, get user_id from JWT token
+    # For demo, get demo user
+    user = find_user_by_email("admin@metro.com")
+    if not user:
+        return {"activities": [], "total_count": 0}
+    
+    activities = get_user_activities(user["id"], limit)
+    
+    # Remove MongoDB _id field
+    for activity in activities:
+        activity.pop("_id", None)
+    
+    return {
+        "user_id": user["id"],
+        "email": user["email"],
+        "activities": activities,
+        "total_count": len(activities)
+    }
+
+
+@app.get("/api/system/logs")
+def get_logs(limit: int = 100, level: Optional[str] = None, category: Optional[str] = None):
+    """Get system logs"""
+    logs = get_system_logs(limit, level, category)
+    
+    # Remove MongoDB _id field
+    for log in logs:
+        log.pop("_id", None)
+    
+    return {
+        "logs": logs,
+        "total_count": len(logs)
+    }
+
+
 @app.get("/wizard/device-types")
 def get_device_types():
     """Get supported device types"""
@@ -1908,6 +2076,21 @@ def start_session(request: SessionStartRequest):
             "log_base_oid": request.log_base_oid,
             "demo_mode": True
         }
+        
+        # Log activity (use demo user for now)
+        try:
+            user = find_user_by_email("admin@metro.com")
+            if user:
+                log_activity(
+                    user["id"],
+                    user["email"],
+                    "DEVICE_CONNECT",
+                    f"Connected to {request.device_type} device",
+                    device_type=request.device_type,
+                    device_ip=request.ip
+                )
+        except Exception:
+            pass
         
         return {
             "session_id": session_id,
